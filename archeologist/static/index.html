@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Codebase Archeologist</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<style>
+  :root {
+    --bg: #14171c;
+    --bg-panel: #1b1f26;
+    --bg-raised: #232833;
+    --line: #2d323d;
+    --text: #e8e6df;
+    --text-dim: #9a9fab;
+    --accent: #d4a03c;
+    --accent-dim: #8a7038;
+    --danger: #e2574c;
+    --safe: #5fae7a;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  @font-face {
+    font-family: "IBM Plex Sans";
+    src: local("Arial");
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  #app {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    height: 100%;
+  }
+
+  header {
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  header h1 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+
+  header .tagline {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  #analyze-bar {
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--bg-panel);
+  }
+
+  #source-tabs {
+    display: flex;
+    gap: 4px;
+    margin-right: 4px;
+  }
+  .tab-btn {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .tab-btn:hover { background: var(--bg-raised); }
+  .tab-btn.active {
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--line);
+  }
+
+  #zip-input {
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+
+  #analyze-bar input[type="text"] {
+    flex: 1;
+    max-width: 560px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  #analyze-bar input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-dim);
+  }
+
+  button {
+    background: var(--accent);
+    color: #1a1408;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:hover { background: #e2ac4a; }
+  button:disabled { background: var(--bg-raised); color: var(--text-dim); cursor: default; }
+
+  button.secondary {
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--line);
+    font-weight: 500;
+  }
+  button.secondary:hover { border-color: var(--accent-dim); }
+
+  #stats {
+    display: flex;
+    gap: 22px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  #stats strong { color: var(--text); font-weight: 600; }
+  #stats .cycles-nonzero strong { color: var(--danger); }
+
+  #main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    min-height: 0;
+  }
+
+  #graph {
+    background: var(--bg);
+    position: relative;
+  }
+
+  #empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 14px;
+    text-align: center;
+    padding: 40px;
+  }
+  #empty-state .big { font-size: 15px; color: var(--text); }
+
+  #sidebar {
+    border-left: 1px solid var(--line);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .panel {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .panel h2 {
+    font-size: 11.5px;
+    text-transform: none;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+
+  #node-title {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    word-break: break-all;
+    margin-bottom: 2px;
+  }
+
+  #node-path {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    word-break: break-all;
+    margin-bottom: 12px;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 6px;
+    margin-bottom: 4px;
+  }
+  .badge.cycle { background: rgba(226,87,76,0.18); color: var(--danger); }
+  .badge.orphan { background: rgba(154,159,171,0.18); color: var(--text-dim); }
+
+  .impact-list {
+    list-style: none;
+    margin: 6px 0 14px;
+    padding: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  .impact-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    color: var(--text);
+  }
+  .impact-list li:hover { color: var(--accent); }
+  .impact-list.empty { color: var(--text-dim); font-family: var(--sans); font-style: normal; }
+
+  textarea {
+    width: 100%;
+    min-height: 64px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 5px;
+    font-family: var(--sans);
+    font-size: 13px;
+    resize: vertical;
+    margin-bottom: 8px;
+  }
+  textarea:focus { outline: none; border-color: var(--accent-dim); }
+
+  #symbol-input {
+    width: 100%;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  #symbol-input:focus { outline: none; border-color: var(--accent-dim); }
+
+  #ask-answer {
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    color: var(--text);
+    background: var(--bg-raised);
+    border-radius: 5px;
+    padding: 12px;
+    margin-top: 10px;
+    display: none;
+  }
+  #ask-loading {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    display: none;
+    margin-top: 8px;
+  }
+
+  #legend {
+    display: flex;
+    gap: 16px;
+    padding: 10px 24px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-panel);
+  }
+  #legend span { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Codebase Archeologist</h1>
+    <div class="tagline">Dependency graph &amp; impact analysis</div>
+  </header>
+
+  <div id="analyze-bar">
+    <div id="source-tabs">
+      <button class="tab-btn active" data-source="path">Local path</button>
+      <button class="tab-btn" data-source="repo">GitHub repo</button>
+      <button class="tab-btn" data-source="zip">Upload zip</button>
+    </div>
+    <input type="text" id="path-input" placeholder="Local folder path, e.g. C:\path\to\project" />
+    <input type="text" id="repo-input" placeholder="https://github.com/user/repo" style="display:none;" />
+    <input type="file" id="zip-input" accept=".zip" style="display:none;" />
+    <button id="analyze-btn">Analyze</button>
+    <div id="stats"></div>
+  </div>
+
+  <div id="main">
+    <div id="graph">
+      <div id="empty-state">
+        <div class="big">No project analyzed yet</div>
+        <div>Enter a local folder path above and click Analyze.</div>
+      </div>
+    </div>
+
+    <div id="sidebar">
+      <div class="panel" id="detail-panel" style="display:none;">
+        <h2>Selected module</h2>
+        <div id="node-title">—</div>
+        <div id="node-path"></div>
+        <div id="node-badges"></div>
+      </div>
+
+      <div class="panel" id="impact-panel" style="display:none;">
+        <h2>Depends on</h2>
+        <ul class="impact-list" id="depends-on-list"></ul>
+        <h2>Depended on by (direct)</h2>
+        <ul class="impact-list" id="depended-by-list"></ul>
+        <h2>Full blast radius (transitive)</h2>
+        <ul class="impact-list" id="blast-radius-list"></ul>
+      </div>
+
+      <div class="panel" id="ask-panel" style="display:none;">
+        <h2>Ask about a change to this module</h2>
+        <input type="text" id="symbol-input" placeholder="Function/symbol being changed (optional)" />
+        <textarea id="question-input" placeholder="e.g. If I change this function's return type, what breaks?"></textarea>
+        <button id="ask-btn">Ask</button>
+        <div id="ask-loading">Thinking… (local model, may take a moment)</div>
+        <div id="ask-answer"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = { graph: null, cy: null };
+
+const els = {
+  sourceTabs: document.querySelectorAll('.tab-btn'),
+  pathInput: document.getElementById('path-input'),
+  repoInput: document.getElementById('repo-input'),
+  zipInput: document.getElementById('zip-input'),
+  analyzeBtn: document.getElementById('analyze-btn'),
+  stats: document.getElementById('stats'),
+  graphDiv: document.getElementById('graph'),
+  emptyState: document.getElementById('empty-state'),
+  detailPanel: document.getElementById('detail-panel'),
+  impactPanel: document.getElementById('impact-panel'),
+  askPanel: document.getElementById('ask-panel'),
+  nodeTitle: document.getElementById('node-title'),
+  nodePath: document.getElementById('node-path'),
+  nodeBadges: document.getElementById('node-badges'),
+  dependsOnList: document.getElementById('depends-on-list'),
+  dependedByList: document.getElementById('depended-by-list'),
+  blastRadiusList: document.getElementById('blast-radius-list'),
+  symbolInput: document.getElementById('symbol-input'),
+  questionInput: document.getElementById('question-input'),
+  askBtn: document.getElementById('ask-btn'),
+  askLoading: document.getElementById('ask-loading'),
+  askAnswer: document.getElementById('ask-answer'),
+};
+
+let selectedModule = null;
+let activeSource = 'path';
+
+els.sourceTabs.forEach(btn => {
+  btn.addEventListener('click', () => {
+    els.sourceTabs.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeSource = btn.dataset.source;
+    els.pathInput.style.display = activeSource === 'path' ? 'block' : 'none';
+    els.repoInput.style.display = activeSource === 'repo' ? 'block' : 'none';
+    els.zipInput.style.display = activeSource === 'zip' ? 'block' : 'none';
+  });
+});
+
+els.analyzeBtn.addEventListener('click', analyze);
+els.pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+els.repoInput.addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+els.askBtn.addEventListener('click', ask);
+
+async function analyze() {
+  let fetchOptions;
+
+  if (activeSource === 'path') {
+    const path = els.pathInput.value.trim();
+    if (!path) return;
+    fetchOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    };
+  } else if (activeSource === 'repo') {
+    const repo = els.repoInput.value.trim();
+    if (!repo) return;
+    fetchOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo }),
+    };
+  } else {
+    const file = els.zipInput.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    fetchOptions = { method: 'POST', body: formData };
+  }
+
+  els.analyzeBtn.disabled = true;
+  els.analyzeBtn.textContent = activeSource === 'repo' ? 'Cloning…' : 'Analyzing…';
+
+  try {
+    const res = await fetch('/api/analyze', fetchOptions);
+    const data = await res.json();
+    if (!res.ok) {
+      alert('Error: ' + (data.error || 'unknown error'));
+      return;
+    }
+    state.graph = data;
+    renderStats(data.summary);
+    renderGraph(data);
+    els.emptyState.style.display = 'none';
+  } catch (err) {
+    alert('Request failed: ' + err.message);
+  } finally {
+    els.analyzeBtn.disabled = false;
+    els.analyzeBtn.textContent = 'Analyze';
+  }
+}
+
+function renderStats(summary) {
+  const cyclesClass = summary.cycles_found > 0 ? 'cycles-nonzero' : '';
+  els.stats.innerHTML = `
+    <span><strong>${summary.total_modules}</strong> modules</span>
+    <span><strong>${summary.total_dependency_edges}</strong> edges</span>
+    <span class="${cyclesClass}"><strong>${summary.cycles_found}</strong> cycles</span>
+    <span><strong>${summary.orphan_modules.length}</strong> orphans</span>
+  `;
+}
+
+function renderGraph(data) {
+  const elements = [];
+
+  data.nodes.forEach(n => {
+    elements.push({
+      data: {
+        id: n.id,
+        label: n.id.split('.').pop(),
+        inCycle: n.in_cycle,
+        isOrphan: n.is_orphan,
+      },
+    });
+  });
+
+  data.edges.forEach(e => {
+    elements.push({
+      data: {
+        id: e.source + '->' + e.target,
+        source: e.source,
+        target: e.target,
+        inCycle: e.in_cycle,
+      },
+    });
+  });
+
+  if (state.cy) state.cy.destroy();
+
+  state.cy = cytoscape({
+    container: els.graphDiv,
+    elements,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'background-color': '#3a4150',
+          'label': 'data(label)',
+          'color': '#e8e6df',
+          'font-size': 10,
+          'font-family': 'IBM Plex Mono, monospace',
+          'text-valign': 'bottom',
+          'text-margin-y': 6,
+          'width': 26,
+          'height': 26,
+          'border-width': 1.5,
+          'border-color': '#4a5163',
+        },
+      },
+      {
+        selector: 'node[?isOrphan]',
+        style: {
+          'background-color': '#232833',
+          'border-color': '#5a6172',
+          'border-style': 'dashed',
+        },
+      },
+      {
+        selector: 'node[?inCycle]',
+        style: {
+          'background-color': '#e2574c',
+          'border-color': '#f28880',
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 3,
+          'border-color': '#d4a03c',
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          'width': 1.4,
+          'line-color': '#454b58',
+          'target-arrow-color': '#454b58',
+          'target-arrow-shape': 'triangle',
+          'arrow-scale': 0.8,
+          'curve-style': 'bezier',
+        },
+      },
+      {
+        selector: 'edge[?inCycle]',
+        style: {
+          'line-color': '#e2574c',
+          'target-arrow-color': '#e2574c',
+          'width': 2,
+        },
+      },
+    ],
+    layout: { name: 'cose', animate: false, padding: 40 },
+  });
+
+  state.cy.on('tap', 'node', evt => {
+    selectModule(evt.target.id());
+  });
+}
+
+async function selectModule(moduleId) {
+  selectedModule = moduleId;
+  const nodeData = state.graph.nodes.find(n => n.id === moduleId);
+  if (!nodeData) return;
+
+  els.detailPanel.style.display = 'block';
+  els.impactPanel.style.display = 'block';
+  els.askPanel.style.display = 'block';
+  els.askAnswer.style.display = 'none';
+  els.askAnswer.textContent = '';
+
+  els.nodeTitle.textContent = moduleId;
+  els.nodePath.textContent = nodeData.file_path || '';
+
+  let badges = '';
+  if (nodeData.in_cycle) badges += '<span class="badge cycle">circular dependency</span>';
+  if (nodeData.is_orphan) badges += '<span class="badge orphan">no importers (check for dead code)</span>';
+  els.nodeBadges.innerHTML = badges;
+
+  try {
+    const res = await fetch('/api/impact/' + encodeURIComponent(moduleId));
+    const impact = await res.json();
+    if (!res.ok) return;
+
+    fillList(els.dependsOnList, impact.directly_depends_on);
+    fillList(els.dependedByList, impact.directly_depended_on_by);
+    fillList(els.blastRadiusList, impact.transitively_depended_on_by);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function fillList(ul, items) {
+  ul.innerHTML = '';
+  if (!items || items.length === 0) {
+    ul.classList.add('empty');
+    const li = document.createElement('li');
+    li.textContent = '(none)';
+    ul.appendChild(li);
+    return;
+  }
+  ul.classList.remove('empty');
+  items.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = item;
+    li.addEventListener('click', () => {
+      state.cy.$(':selected').unselect();
+      const node = state.cy.$id(item);
+      if (node) { node.select(); state.cy.animate({ center: { eles: node } }, { duration: 200 }); }
+      selectModule(item);
+    });
+    ul.appendChild(li);
+  });
+}
+
+async function ask() {
+  if (!selectedModule) return;
+  const question = els.questionInput.value.trim();
+  if (!question) return;
+
+  els.askBtn.disabled = true;
+  els.askLoading.style.display = 'block';
+  els.askAnswer.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        module: selectedModule,
+        question,
+        symbol: els.symbolInput.value.trim() || null,
+      }),
+    });
+    const data = await res.json();
+    els.askAnswer.style.display = 'block';
+    els.askAnswer.textContent = res.ok ? data.answer : ('Error: ' + data.error);
+  } catch (err) {
+    els.askAnswer.style.display = 'block';
+    els.askAnswer.textContent = 'Request failed: ' + err.message;
+  } finally {
+    els.askBtn.disabled = false;
+    els.askLoading.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>
